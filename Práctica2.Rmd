@@ -1,0 +1,232 @@
+---
+title: "Análisis de Datos con Web Scraping"
+author: "Marcel Marimon, Maria Parera, Bernat Batle"
+date: "13/01/2025"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introducción
+Este documento analiza la página web `https://www.mediawiki.org/wiki/MediaWiki` mediante scraping, procesando los datos obtenidos para generar visualizaciones.
+
+## Librerías necesarias
+```{r}
+# Instalamos las librerías necesarias
+if (!require(httr)) install.packages("httr")
+if (!require(XML)) install.packages("XML")
+if (!require(ggplot2)) install.packages("ggplot2")
+
+
+library(httr)
+library(XML)
+library (ggplot2)
+
+
+```
+# Pregunta 1
+
+## 1: Descarga y análisis inicial de la página
+```{r}
+# Descargar el contenido HTML
+dominio <- "https://www.mediawiki.org"
+url <- paste0(dominio, "/wiki/MediaWiki")
+response <- GET(url)
+contenido_html <- content(response, "text")
+doc <- htmlParse(contenido_html, asText = TRUE)
+```
+
+## 2: Extraer el título de la página
+```{r}
+titulo <- xpathSApply(doc, "//title", xmlValue)
+cat("Título de la página:", titulo)
+```
+
+## 3: Extracción de enlaces
+```{r}
+# Extraer enlaces y textos
+enlaces <- xpathSApply(doc, "//a[@href]", function(x) c(href = xmlGetAttr(x, "href"), text = xmlValue(x)))
+enlaces_df <- data.frame(matrix(unlist(enlaces), ncol = 2, byrow = TRUE), stringsAsFactors = FALSE)
+colnames(enlaces_df) <- c("URL", "Texto")
+
+# Identificar si la URL es relativa o absoluta
+enlaces_df$Tipo_Original <- ifelse(grepl("^/", enlaces_df$URL), "Relativa", "Absoluta")
+
+# Convertir URLs relativas en absolutas
+enlaces_df$URL <- ifelse(enlaces_df$Tipo_Original == "Relativa", paste0(dominio, enlaces_df$URL), enlaces_df$URL)
+
+```
+
+
+## 4: Tabla de frecuencia de enlaces
+```{r}
+# Contar frecuencia de enlaces
+enlaces_df$Frecuencia <- ave(enlaces_df$URL, enlaces_df$URL, FUN = length)
+
+# Limpiar dataframe para seleccionar solo enlaces
+enlaces_df <- enlaces_df[!grepl("^#|^#$", enlaces_df$URL), ]
+
+library(dplyr)
+
+# Filtrar filas únicas basadas en la URL
+enlaces_unicos_df <- enlaces_df %>%
+  distinct(URL, .keep_all = TRUE)
+
+# Verificar cuántos enlaces únicos quedaron
+cat("Número de enlaces únicos tratados:", nrow(enlaces_unicos_df))
+
+
+# Ver los primeros casos
+head(enlaces_unicos_df)
+
+```
+
+## 5: Verificar estado de enlaces
+```{r}
+Sys.sleep(1)  # Tiempo de espera para evitar bloqueos
+library(dplyr)
+enlaces_unicos_df <- enlaces_unicos_df %>% mutate(Status = sapply(URL, function(url) {
+  if (!grepl("^http", url)) return(NA)
+  status <- tryCatch({
+    HEAD(url)$status_code
+  }, error = function(e) NA)
+  Sys.sleep(0.5)
+  return(status)
+}))
+```
+
+# Pregunta 2
+## 1. Histograma: Frecuencia de enlaces por tipo
+```{r}
+library(ggplot2)
+
+
+# Histograma de frecuencias categóricas mejorado
+ggplot(enlaces_unicos_df, aes(x = Tipo_Original, fill = Tipo_Original)) +
+  geom_bar(stat = "count", position = "stack", color = "black", alpha = 0.9) +  # Barras juntas, bordes definidos
+  scale_fill_manual(values = c("Relativa" = "#FF6F61", "Absoluta" = "#6B5B95")) +  # Colores personalizados
+  labs(
+    title = "Frecuencia de Enlaces por Tipo Original",
+    subtitle = "Simulación de histograma categórico con barras juntas",
+    x = "Tipo de URL Original",
+    y = "Frecuencia",
+    fill = "Tipo de URL"
+  ) +
+  theme_minimal(base_size = 15) +  # Ajuste de tamaño de fuente
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18),  # Centrar y destacar título
+    plot.subtitle = element_text(hjust = 0.5, size = 14, color = "gray40"),  # Subtítulo centrado
+    axis.title = element_text(face = "bold"),  # Resaltar títulos de los ejes
+    axis.text = element_text(size = 12),  # Ajuste de tamaño del texto de ejes
+    legend.position = "top",  # Leyenda arriba
+    legend.title = element_text(face = "bold"),  # Resaltar título de la leyenda
+    legend.background = element_rect(fill = "gray95", color = "gray80"),  # Fondo de la leyenda
+    panel.grid.major = element_line(color = "gray85"),  # Cuadrícula principal
+    panel.grid.minor = element_blank()  # Eliminar cuadrícula menor
+  )
+
+```
+```{r}
+
+ggplot(enlaces_unicos_df, aes(x = Frecuencia, fill = Tipo_Original)) +
+  geom_bar(stat = "count", color = "black", alpha = 0.8) +  # Cambiamos a geom_bar con stat = "count"
+  scale_fill_manual(values = c("Relativa" = "#FF6F61", "Absoluta" = "#6B5B95")) +
+  labs(
+    title = "Histograma de Frecuencia de URLs",
+    x = "Frecuencia de URLs",
+    y = "Número de URLs",
+    fill = "Tipo de Enlace"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
+    axis.title = element_text(face = "bold"),
+    legend.position = "top"
+  )
+
+
+```
+
+## 2. Gráfico de barras: Enlaces internos vs externos
+```{r}
+
+enlaces_unicos_df$Interno <- grepl(dominio, enlaces_unicos_df$URL)
+
+ggplot(enlaces_unicos_df, aes(x = Interno, fill = Interno)) +
+  geom_bar(color = "black", alpha = 0.8) +  # Bordes y transparencia
+  scale_x_discrete(
+    labels = c("FALSE" = "Externos", "TRUE" = "Internos")
+  ) +
+  scale_fill_manual(
+    values = c("FALSE" = "#FF6F61", "TRUE" = "#4CAF50"),
+    labels = c("FALSE" = "Externos", "TRUE" = "Internos")
+  ) +
+  labs(
+    title = "Enlaces Internos vs Externos",
+    subtitle = "Comparativa entre enlaces internos y externos",
+    x = "Tipo de Enlace",
+    y = "Cantidad",
+    fill = "Tipo de Enlace"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14, color = "gray40"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.position = "top",
+    legend.title = element_text(face = "bold"),
+    legend.background = element_rect(fill = "gray95", color = "gray80"),
+    panel.grid.major = element_line(color = "gray85"),
+    panel.grid.minor = element_blank()
+  )
+
+
+```
+
+## 3. Gráfico de pastel: Distribución de códigos de estado
+```{r}
+
+# Crear un dataframe con las frecuencias y porcentajes de los códigos de estado
+status_counts <- as.data.frame(table(enlaces_unicos_df$Status))
+colnames(status_counts) <- c("Status", "Frecuencia")
+status_counts <- status_counts %>%
+  mutate(Porcentaje = round(100 * Frecuencia / sum(Frecuencia), 1))  # Calcular porcentajes
+
+# Crear el gráfico de pastel
+ggplot(status_counts, aes(x = "", y = Frecuencia, fill = Status)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +  # Barras estilo pastel
+  coord_polar(theta = "y") +  # Transformar a coordenadas polares
+  scale_fill_brewer(palette = "Set3") +  # Paleta de colores
+  labs(
+    title = "Distribución de Códigos de Estado HTTP",
+    fill = "Código de Estado"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
+    axis.text = element_blank(),  # Eliminar texto del eje
+    axis.title = element_blank(),  # Eliminar títulos del eje
+    panel.grid = element_blank(),  # Eliminar cuadrícula
+    legend.title = element_text(face = "bold"),
+    legend.position = "right"
+  ) +
+  geom_text(
+    aes(label = paste0(Porcentaje, "%")), 
+    position = position_stack(vjust = 0.5), 
+    color = "black", 
+    size = 4
+  )
+
+
+```
+
+
+
+
+
+# Conclusión
+Este análisis muestra cómo obtener y procesar datos web mediante técnicas de scraping con R, facilitando la generación de insights mediante visualizaciones.
