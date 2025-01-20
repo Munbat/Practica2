@@ -24,14 +24,13 @@ if (!require(ggplot2)) install.packages("ggplot2")
 library(httr)
 library(XML)
 library (ggplot2)
-
+library(dplyr)
 
 ```
 # Pregunta 1
 
 ## 1: Descarga y análisis inicial de la página
 ```{r}
-# Descargar el contenido HTML
 dominio <- "https://www.mediawiki.org"
 url <- paste0(dominio, "/wiki/MediaWiki")
 response <- GET(url)
@@ -47,12 +46,10 @@ cat("Título de la página:", titulo)
 
 ## 3: Extracción de enlaces
 ```{r}
-# Extraer enlaces y textos
 enlaces <- xpathSApply(doc, "//a[@href]", function(x) c(href = xmlGetAttr(x, "href"), text = xmlValue(x)))
 enlaces_df <- data.frame(matrix(unlist(enlaces), ncol = 2, byrow = TRUE), stringsAsFactors = FALSE)
 colnames(enlaces_df) <- c("URL", "Texto")
 
-# Identificar si la URL es relativa o absoluta
 enlaces_df$Tipo_Original <- ifelse(grepl("^/", enlaces_df$URL), "Relativa", "Absoluta")
 
 # Convertir URLs relativas en absolutas
@@ -63,23 +60,18 @@ enlaces_df$URL <- ifelse(enlaces_df$Tipo_Original == "Relativa", paste0(dominio,
 
 ## 4: Tabla de frecuencia de enlaces
 ```{r}
-# Contar frecuencia de enlaces
 enlaces_df$Frecuencia <- ave(enlaces_df$URL, enlaces_df$URL, FUN = length)
 
 # Limpiar dataframe para seleccionar solo enlaces
 enlaces_df <- enlaces_df[!grepl("^#|^#$", enlaces_df$URL), ]
 
-library(dplyr)
 
-# Filtrar filas únicas basadas en la URL
 enlaces_unicos_df <- enlaces_df %>%
   distinct(URL, .keep_all = TRUE)
 
 # Verificar cuántos enlaces únicos quedaron
 cat("Número de enlaces únicos tratados:", nrow(enlaces_unicos_df))
 
-
-# Ver los primeros casos
 head(enlaces_unicos_df)
 
 ```
@@ -101,11 +93,7 @@ enlaces_unicos_df <- enlaces_unicos_df %>% mutate(Status = sapply(URL, function(
 # Pregunta 2
 ## 1. Histograma: Frecuencia de enlaces por tipo
 ```{r}
-library(ggplot2)
-
-
-# Histograma de frecuencias categóricas mejorado
-ggplot(enlaces_unicos_df, aes(x = Tipo_Original, fill = Tipo_Original)) +
+g1<- ggplot(enlaces_unicos_df, aes(x = Tipo_Original, fill = Tipo_Original)) +
   geom_bar(stat = "count", position = "stack", color = "black", alpha = 0.9) +  # Barras juntas, bordes definidos
   scale_fill_manual(values = c("Relativa" = "#FF6F61", "Absoluta" = "#6B5B95")) +  # Colores personalizados
   labs(
@@ -129,9 +117,10 @@ ggplot(enlaces_unicos_df, aes(x = Tipo_Original, fill = Tipo_Original)) +
   )
 
 ```
-```{r}
 
-ggplot(enlaces_unicos_df, aes(x = Frecuencia, fill = Tipo_Original)) +
+
+```{r}
+g2 <- ggplot(enlaces_unicos_df, aes(x = Frecuencia, fill = Tipo_Original)) +
   geom_bar(stat = "count", color = "black", alpha = 0.8) +  # Cambiamos a geom_bar con stat = "count"
   scale_fill_manual(values = c("Relativa" = "#FF6F61", "Absoluta" = "#6B5B95")) +
   labs(
@@ -151,11 +140,11 @@ ggplot(enlaces_unicos_df, aes(x = Frecuencia, fill = Tipo_Original)) +
 ```
 
 ## 2. Gráfico de barras: Enlaces internos vs externos
-```{r}
 
+```{r}
 enlaces_unicos_df$Interno <- grepl(dominio, enlaces_unicos_df$URL)
 
-ggplot(enlaces_unicos_df, aes(x = Interno, fill = Interno)) +
+g3 <- ggplot(enlaces_unicos_df, aes(x = Interno, fill = Interno)) +
   geom_bar(color = "black", alpha = 0.8) +  # Bordes y transparencia
   scale_x_discrete(
     labels = c("FALSE" = "Externos", "TRUE" = "Internos")
@@ -188,19 +177,17 @@ ggplot(enlaces_unicos_df, aes(x = Interno, fill = Interno)) +
 ```
 
 ## 3. Gráfico de pastel: Distribución de códigos de estado
-```{r}
 
-# Crear un dataframe con las frecuencias y porcentajes de los códigos de estado
+```{r}
 status_counts <- as.data.frame(table(enlaces_unicos_df$Status))
 colnames(status_counts) <- c("Status", "Frecuencia")
 status_counts <- status_counts %>%
-  mutate(Porcentaje = round(100 * Frecuencia / sum(Frecuencia), 1))  # Calcular porcentajes
+  mutate(Porcentaje = round(100 * Frecuencia / sum(Frecuencia), 1))  
 
-# Crear el gráfico de pastel
-ggplot(status_counts, aes(x = "", y = Frecuencia, fill = Status)) +
-  geom_bar(stat = "identity", width = 1, color = "white") +  # Barras estilo pastel
-  coord_polar(theta = "y") +  # Transformar a coordenadas polares
-  scale_fill_brewer(palette = "Set3") +  # Paleta de colores
+g4 <- ggplot(status_counts, aes(x = "", y = Frecuencia, fill = Status)) +
+  geom_bar(stat = "identity", width = 1, color = "white") + 
+  coord_polar(theta = "y") +  
+  scale_fill_brewer(palette = "Set3") + 
   labs(
     title = "Distribución de Códigos de Estado HTTP",
     fill = "Código de Estado"
@@ -208,9 +195,9 @@ ggplot(status_counts, aes(x = "", y = Frecuencia, fill = Status)) +
   theme_minimal(base_size = 15) +
   theme(
     plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
-    axis.text = element_blank(),  # Eliminar texto del eje
-    axis.title = element_blank(),  # Eliminar títulos del eje
-    panel.grid = element_blank(),  # Eliminar cuadrícula
+    axis.text = element_blank(),  
+    axis.title = element_blank(),  
+    panel.grid = element_blank(), 
     legend.title = element_text(face = "bold"),
     legend.position = "right"
   ) +
@@ -226,7 +213,40 @@ ggplot(status_counts, aes(x = "", y = Frecuencia, fill = Status)) +
 
 
 
+```{r, fig.width=12, fig.height=6, echo=FALSE}
+
+library(gridExtra)
+library(grid)
+
+grid.arrange(
+  g1, g2,
+  ncol = 2,  
+  top = textGrob(
+    "Gráficos 1 y 1.1",
+    gp = gpar(fontsize = 18, fontface = "bold")
+  )
+)
+
+
+```
+```{r, fig.width=12, fig.height=6, echo=FALSE}
+grid.arrange(
+  g3, g4,
+  ncol = 2,  
+  top = textGrob(
+    "Gráficos 2 y 3",
+    gp = gpar(fontsize = 18, fontface = "bold")
+  )
+)
+
+```
 
 
 # Conclusión
-Este análisis muestra cómo obtener y procesar datos web mediante técnicas de scraping con R, facilitando la generación de insights mediante visualizaciones.
+Este primer gráfico (1), se muestra la proporción de enlaces relativos y absolutos en la página analizada "mediawiki.org". Los enlaces relativos se limitan al dominio interno, mientras que los absolutos pueden incluir tanto internos como externos.La prevalencia de enlaces relativos refleja un diseño consistente, con rutas internas claras, lo que mejora la navegabilidad dentro del sitio.
+En el segundo histograma (1.1), representa cuántas veces se repiten las mismas URLs en el sitio. Las barras muestran la cantidad de URLs que tienen una misma frecuencia de aparición.La mayoría de las URLs tienen una baja frecuencia, lo que es esperado en contenido dinámico o no redundante. Sin embargo, las URLs con alta frecuencia podrían ser elementos repetitivos como menús o pies de página, que podrían optimizarse si son redundantes.
+Empezando por la segunda fila, el gráfico de barras (2) compara la cantidad de enlaces que apuntan dentro del dominio con aquellos que apuntan a otros dominios o servicios. La alta proporción de enlaces internos demuestra que el sitio está estructurado para retener al usuario dentro del dominio, maximizando la interacción con el contenido interno. 
+Finalmente, el gráfico de pastel (3) muestra las proporciones de diferentes códigos de estado HTTP en los enlaces analizados. Los códigos 200 indican enlaces funcionales, mientras que 404 representan errores de enlaces rotos. Podemos extraer como hay una alta proporción de códigos 200 indicando una buena salud del sitio. Los enlaces rotos (404) representan una pequeña fracción pero deben ser revisados para evitar una mala experiencia de usuario y posibles entradas maliciosas.
+
+#### *Hemos añadido un segundo gráfico en el primer apartado, pero nos ha parecido interesante para extraer una comparativa más detallada.*
+
